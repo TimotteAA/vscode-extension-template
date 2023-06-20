@@ -30,3 +30,4 @@ vscode 类似于 electron，给开发者提供了 webview（渲染进程）与�
 
 1. 调试插件开发，在 md 文件保存与修改时做到自动更新
 2. 研究下 markdown 解析的第三方库
+# vscode-extension-template
