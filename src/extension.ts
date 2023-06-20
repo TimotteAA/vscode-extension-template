@@ -1,7 +1,8 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
-import * as marked from "marked";
+import { marked } from "marked";
+import * as fs from "node:fs";
 
 const test = () => {
   // The code you place here will be executed every time your command is executed
@@ -26,6 +27,8 @@ const test = () => {
   });
 };
 
+const webViewMap: Map<vscode.Uri, vscode.WebviewPanel> = new Map();
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -40,14 +43,13 @@ export function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand(
     "timotte.translation",
     () => {
-      // vscode.window.showInformationMessage(
-      //   "打开文件的路径" + vscode?.window?.activeTextEditor?.document.uri
-      // );
       // 获得当前打开的文档
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor) {
         // 获取当前文档的内容
         const content = activeEditor.document.getText();
+        // 活跃的文档
+        const document = activeEditor.document;
 
         // 创建新的Webview面板
         const panel = vscode.window.createWebviewPanel(
@@ -59,6 +61,9 @@ export function activate(context: vscode.ExtensionContext) {
             retainContextWhenHidden: true, // 进入后台时webview内容不被释放
           }
         );
+
+        // 保存当前markdown文件对应侧边栏的webview
+        webViewMap.set(document.uri, panel);
 
         // 将Markdown内容设置为Webview面板的HTMl
         panel.webview.html = `
@@ -75,11 +80,47 @@ export function activate(context: vscode.ExtensionContext) {
             </style>
           </head>
           <body>
-            <hr />
             ${marked.parse(content)}
           </body>
+          <script>
+            const bodyEl = document.body;
+            window.addEventListener("message", (e) => {
+              if (e.data.type === "update-html") {
+                bodyEl.innerHTML = e.data.content;
+              }
+            })     
+          </script>
         </html>
-			`;
+			  `;
+
+        // 下面的监听是会监听到插件起作用的所有文件
+
+        // 监听某个文档内容变化
+        let changeDisposabe = vscode.workspace.onDidChangeTextDocument((e) => {
+          if (e.document === document) {
+            // console.log("修改的文件：", e.document.fileName);
+            if (isMarkdownFile(e.document.fileName)) {
+              // console.log("markdown: ", e.document.fileName);
+              // 当前修改的是markdown文件
+              update(document.uri, document);
+            }
+          }
+        });
+        // 清理注册函数
+        context.subscriptions.push(changeDisposabe);
+
+        // 监听当前workspace中某个文件保存
+        let saveDisposable = vscode.workspace.onDidSaveTextDocument(
+          (document) => {
+            if (isMarkdownFile(document.fileName)) {
+              // 保存的文件是markdown文件
+              // 更新markdown文件到预览webview中
+              update(document.uri, document);
+            }
+          }
+        );
+        // 注册清理函数
+        context.subscriptions.push(saveDisposable);
       }
     }
   );
@@ -91,26 +132,37 @@ export function activate(context: vscode.ExtensionContext) {
 // This method is called when your extension is deactivated
 export function deactivate() {}
 
-function getWebviewContent() {
-  return `<!DOCTYPE html>
-	  <html lang="en">
-		<head>
-		  <meta charset="UTF-8">
-		  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-		  <title>Cat Coding</title>
-		</head>
-		<body>
-		  <img src="https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif" width="300" />
-		  <p id="test"></p>
-		  <script>
-			window.addEventListener('message', e => {
-			  document.getElementById('test').innerHTML = e.data.text;
-			});
-			const vscode = acquireVsCodeApi();
-			vscode.postMessage({
-			  text: "I'm Webview"
-			});
-		  </script>
-		</body>
-	  </html>`;
+/**
+ * 判断某一文件是否是markdown见闻
+ * @param fileName 文件名称
+ * @returns
+ */
+function isMarkdownFile(fileName: string) {
+  if (fileName.endsWith(".md")) {
+    let content = fs.readFileSync(fileName, "utf-8");
+    // 判断Markdown文件的内容特征，例如文件头部的标识符
+    if (
+      content.startsWith("#") ||
+      content.startsWith("---") ||
+      content.includes("title:") ||
+      content.includes("-")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function update(uri: vscode.Uri, document: vscode.TextDocument) {
+  const panel = webViewMap.get(uri);
+  if (panel) {
+    // 文档中的内容
+    const text = document.getText();
+    // const html = marked.parse(text);
+    const html = await marked(text, {});
+    panel.webview.postMessage({
+      type: "update-html",
+      content: html,
+    });
+  }
 }
