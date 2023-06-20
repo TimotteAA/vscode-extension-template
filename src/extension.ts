@@ -3,29 +3,8 @@
 import * as vscode from "vscode";
 import { marked } from "marked";
 import * as fs from "node:fs";
-
-const test = () => {
-  // The code you place here will be executed every time your command is executed
-  // Display a message box to the user
-  vscode.window.showInformationMessage("插件打开后就会显示我😊");
-  const panel = vscode.window.createWebviewPanel(
-    "catCoding",
-    "Cat Coding",
-    vscode.ViewColumn.One,
-    {
-      retainContextWhenHidden: true, // 保证 Webview 所在页面进入后台时不被释放
-      enableScripts: true, // 运行 JS 执行
-    }
-  );
-  panel.webview.html = getWebviewContent();
-  // 向webview发消息
-  panel.webview.postMessage({ text: "I'm VSCode extension" });
-
-  // 监听webview的消息
-  panel.webview.onDidReceiveMessage((data) => {
-    console.log(data.text);
-  });
-};
+import { debounce } from "lodash";
+import { translate } from "my-translator";
 
 const webViewMap: Map<vscode.Uri, vscode.WebviewPanel> = new Map();
 
@@ -102,7 +81,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (isMarkdownFile(e.document.fileName)) {
               // console.log("markdown: ", e.document.fileName);
               // 当前修改的是markdown文件
-              update(document.uri, document);
+              debounceUpdate(document.uri, document);
             }
           }
         });
@@ -156,13 +135,27 @@ function isMarkdownFile(fileName: string) {
 async function update(uri: vscode.Uri, document: vscode.TextDocument) {
   const panel = webViewMap.get(uri);
   if (panel) {
-    // 文档中的内容
+    // 文档中的内容，此处是markdown
     const text = document.getText();
     // const html = marked.parse(text);
-    const html = await marked(text, {});
+    try {
+      const res = await translate(
+        // @ts-ignore
+        { type: "md", data: text },
+        "Chinese",
+        "English"
+      );
+      console.log("翻译后的mk: ", res);
+    } catch (err) {
+      console.log("err ", err);
+    }
+
+    const html = await marked(text, { mangle: false });
     panel.webview.postMessage({
       type: "update-html",
       content: html,
     });
   }
 }
+
+const debounceUpdate = debounce(update, 100);
